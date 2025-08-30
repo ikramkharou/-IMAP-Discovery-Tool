@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMAP Configuration Discovery Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .drag-over {
+            @apply border-blue-500 bg-blue-50;
+        }
+        .processing {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .tab-button {
+            color: #6b7280;
+            background: transparent;
+        }
+        .tab-button.active {
+            color: #1f2937;
+            background: white;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+        .tab-button:hover:not(.active) {
+            color: #374151;
+            background: rgba(255, 255, 255, 0.5);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="gradient-bg text-white shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <i class="fas fa-envelope-open-text text-2xl"></i>
+                    <h1 class="text-2xl font-bold">IMAP Discovery Tool</h1>
+                </div>
+                <div class="text-sm opacity-90">
+                    Professional Email Configuration Discovery
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container mx-auto px-6 py-8">
+        <!-- Upload Section -->
+        <div class="bg-white rounded-xl shadow-lg p-8 mb-8">
+            <div class="text-center mb-6">
+                <h2 class="text-3xl font-bold text-gray-800 mb-2">Process Email List</h2>
+                <p class="text-gray-600">Upload a file or paste your email:password list directly</p>
+            </div>
+
+            <!-- Method Selection Tabs -->
+            <div class="flex justify-center mb-6">
+                <div class="bg-gray-100 p-1 rounded-lg">
+                    <button id="tab-file" class="tab-button active px-6 py-2 rounded-md font-medium transition-all duration-300">
+                        <i class="fas fa-file-upload mr-2"></i>File Upload
+                    </button>
+                    <button id="tab-text" class="tab-button px-6 py-2 rounded-md font-medium transition-all duration-300">
+                        <i class="fas fa-edit mr-2"></i>Paste Text
+                    </button>
+                </div>
+            </div>
+
+            <!-- File Upload Method -->
+            <div id="method-file" class="method-content">
+                <!-- Drag and Drop Area -->
+                <div id="dropzone" class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center transition-all duration-300 hover:border-gray-400 cursor-pointer">
+                    <div id="upload-content">
+                        <i class="fas fa-cloud-upload-alt text-6xl text-gray-400 mb-4"></i>
+                        <h3 class="text-xl font-semibold text-gray-700 mb-2">Drop your file here</h3>
+                        <p class="text-gray-500 mb-4">or <span class="text-blue-600 font-medium">click to browse</span></p>
+                        <p class="text-sm text-gray-400">Supports .txt files with email:password format</p>
+                    </div>
+                    <div id="file-info" class="hidden">
+                        <i class="fas fa-file-alt text-4xl text-green-500 mb-2"></i>
+                        <p class="text-gray-700 font-medium" id="file-name"></p>
+                        <p class="text-gray-500 text-sm" id="file-size"></p>
+                    </div>
+                </div>
+                <input type="file" id="file-input" class="hidden" accept=".txt">
+            </div>
+
+            <!-- Text Input Method -->
+            <div id="method-text" class="method-content hidden">
+                <div class="border-2 border-gray-300 rounded-lg p-6">
+                    <div class="mb-4">
+                        <label class="block text-lg font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-edit mr-2"></i>Paste Your Email List
+                        </label>
+                        <p class="text-gray-600 text-sm mb-4">Enter email:password pairs, one per line</p>
+                        <textarea 
+                            id="email-text-input" 
+                            class="w-full h-64 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                            placeholder="user@gmail.com:password123&#10;admin@company.com:secretpass&#10;test@yahoo.com:mypassword&#10;&#10;...paste your email:password list here"
+                        ></textarea>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="text-sm text-gray-600">
+                            <span id="line-count">0</span> lines entered
+                        </div>
+                        <div class="flex space-x-3">
+                            <button id="clear-text" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                                <i class="fas fa-trash mr-2"></i>Clear
+                            </button>
+                            <button id="validate-text" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                                <i class="fas fa-check mr-2"></i>Validate
+                            </button>
+                        </div>
+                    </div>
+                    <div id="validation-results" class="mt-4 hidden">
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <div class="grid grid-cols-3 gap-4 text-center">
+                                <div>
+                                    <div class="text-2xl font-bold text-green-600" id="valid-count">0</div>
+                                    <div class="text-sm text-gray-600">Valid Emails</div>
+                                </div>
+                                <div>
+                                    <div class="text-2xl font-bold text-red-600" id="invalid-count">0</div>
+                                    <div class="text-sm text-gray-600">Invalid Lines</div>
+                                </div>
+                                <div>
+                                    <div class="text-2xl font-bold text-blue-600" id="total-lines">0</div>
+                                    <div class="text-sm text-gray-600">Total Lines</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Panel -->
+            <div class="mt-6 bg-gray-50 rounded-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Processing Settings</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Connection Timeout</label>
+                        <select id="timeout" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="3">3 seconds (Fast)</option>
+                            <option value="5" selected>5 seconds (Default)</option>
+                            <option value="10">10 seconds (Thorough)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Worker Threads</label>
+                        <select id="workers" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="10">10 threads (Conservative)</option>
+                            <option value="20">20 threads (Default)</option>
+                            <option value="30" selected>30 threads (Fast)</option>
+                            <option value="50">50 threads (Maximum)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Test Limit</label>
+                        <select id="limit" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">All emails</option>
+                            <option value="10">First 10 (Test)</option>
+                            <option value="50">First 50 (Quick)</option>
+                            <option value="100">First 100 (Sample)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Process Button -->
+            <div class="mt-6 text-center">
+                <button id="process-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-lg text-lg transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    <i class="fas fa-search mr-2"></i>
+                    Discover IMAP Configurations
+                </button>
+            </div>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progress-section" class="hidden bg-white rounded-xl shadow-lg p-8 mb-8">
+            <div class="text-center">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">Processing Emails...</h3>
+                <div class="w-full bg-gray-200 rounded-full h-3 mb-4">
+                    <div id="progress-bar" class="bg-blue-600 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <div class="flex justify-between text-sm text-gray-600">
+                    <span id="progress-text">Initializing...</span>
+                    <span id="progress-percent">0%</span>
+                </div>
+                <div class="mt-4">
+                    <div class="processing inline-block w-4 h-4 bg-blue-600 rounded-full mr-2"></div>
+                    <span id="current-email" class="text-gray-600">Preparing to process emails...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results-section" class="hidden bg-white rounded-xl shadow-lg overflow-hidden">
+            <!-- Results Header -->
+            <div class="bg-gray-50 px-8 py-6 border-b">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-2xl font-bold text-gray-800">IMAP Configuration Results</h3>
+                        <p class="text-gray-600 mt-1" id="results-summary">Processing completed</p>
+                    </div>
+                    <div class="flex space-x-3">
+                        <button id="export-csv" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-all duration-300 shadow-md hover:shadow-lg">
+                            <i class="fas fa-download mr-2"></i>
+                            Export CSV
+                        </button>
+                        <button id="copy-configs" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-all duration-300 shadow-md hover:shadow-lg">
+                            <i class="fas fa-copy mr-2"></i>
+                            Copy Results
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistics -->
+            <div class="px-8 py-6 bg-gradient-to-r from-blue-50 to-indigo-50">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div class="text-center">
+                        <div class="text-3xl font-bold text-blue-600" id="stat-total">0</div>
+                        <div class="text-gray-600 font-medium">Total Processed</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-3xl font-bold text-green-600" id="stat-success">0</div>
+                        <div class="text-gray-600 font-medium">Successful</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-3xl font-bold text-red-600" id="stat-failed">0</div>
+                        <div class="text-gray-600 font-medium">Failed</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-3xl font-bold text-purple-600" id="stat-rate">0%</div>
+                        <div class="text-gray-600 font-medium">Success Rate</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search and Filter -->
+            <div class="px-8 py-4 bg-gray-50 border-b">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-3 md:space-y-0">
+                    <div class="flex items-center space-x-4">
+                        <div class="relative">
+                            <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                            <input type="text" id="search-input" placeholder="Search emails or domains..." class="pl-10 pr-4 py-2 w-64 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <select id="port-filter" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">All Ports</option>
+                            <option value="993">Port 993 (SSL)</option>
+                            <option value="143">Port 143 (Standard)</option>
+                        </select>
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        Showing <span id="visible-count">0</span> of <span id="total-count">0</span> results
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200" data-sort="email">
+                                <div class="flex items-center space-x-1">
+                                    <span>Email</span>
+                                    <i class="fas fa-sort text-gray-400"></i>
+                                </div>
+                            </th>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200" data-sort="domain">
+                                <div class="flex items-center space-x-1">
+                                    <span>Domain</span>
+                                    <i class="fas fa-sort text-gray-400"></i>
+                                </div>
+                            </th>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200" data-sort="imap_server">
+                                <div class="flex items-center space-x-1">
+                                    <span>IMAP Server</span>
+                                    <i class="fas fa-sort text-gray-400"></i>
+                                </div>
+                            </th>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200" data-sort="port">
+                                <div class="flex items-center space-x-1">
+                                    <span>Port</span>
+                                    <i class="fas fa-sort text-gray-400"></i>
+                                </div>
+                            </th>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Password
+                            </th>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Status
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-table" class="bg-white divide-y divide-gray-200">
+                        <!-- Results will be populated here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Spacer to push footer down -->
+    <div class="min-h-screen"></div>
+    
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-white py-8 mt-32">
+        <div class="container mx-auto px-6 text-center">
+            <p class="text-gray-400">
+                <i class="fas fa-shield-alt mr-2"></i>
+                IMAP Discovery Tool - Professional Email Configuration Discovery
+            </p>
+            <p class="text-gray-500 text-sm mt-2">
+                Supports both file upload and direct text input for maximum flexibility
+            </p>
+        </div>
+    </footer>
+
+    <!-- Loading Modal -->
+    <div id="loading-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-8 max-w-md w-mx-4">
+            <div class="text-center">
+                <div class="processing inline-block w-8 h-8 bg-blue-600 rounded-full mb-4"></div>
+                <h3 class="text-lg font-bold text-gray-800 mb-2">Processing File</h3>
+                <p class="text-gray-600">Please wait while we process your email list...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
