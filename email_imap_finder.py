@@ -221,7 +221,7 @@ class EmailIMAPFinder:
         
         return working_configs
     
-    def process_emails(self, emails, max_workers=20):
+    def process_emails(self, emails, max_workers=200):
         """Process multiple emails with threading"""
         print(f"🚀 Processing {len(emails)} email addresses...")
         
@@ -327,7 +327,7 @@ def main():
                        help='Output CSV file')
     parser.add_argument('--timeout', '-t', type=int, default=10,
                        help='Connection timeout in seconds')
-    parser.add_argument('--workers', '-w', type=int, default=20,
+    parser.add_argument('--workers', '-w', type=int, default=200,
                        help='Maximum worker threads')
     parser.add_argument('--limit', '-l', type=int, 
                        help='Limit number of emails to process (for testing)')

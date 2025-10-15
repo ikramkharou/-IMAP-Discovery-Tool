@@ -6,8 +6,6 @@ Startup script for the IMAP Discovery Web Interface
 import os
 import sys
 import subprocess
-import webbrowser
-import time
 import socket
 
 def check_port(port):
@@ -37,14 +35,13 @@ def start_server():
     print("=" * 60)
     
     # Check if port is available
-    port = 5000
+    port = 5001
     if not check_port(port):
         print(f"⚠️  Port {port} is already in use. Please stop other services or change the port.")
         input("Press Enter to continue anyway...")
     
     # Start server
     print(f"\n💻 Server starting at: http://localhost:{port}")
-    print("🌐 Opening web browser automatically...")
     print("\n📋 Usage Instructions:")
     print("  1. Drag & drop your email:password .txt file")
     print("  2. Adjust processing settings if needed")
@@ -53,16 +50,6 @@ def start_server():
     print("\n⚠️  Note: Processing may take several minutes for large files")
     print("🔒 All processing is done locally - your data stays private")
     print("\n" + "=" * 60)
-    
-    # Auto-open browser after a short delay
-    def open_browser():
-        time.sleep(2)
-        webbrowser.open(f'http://localhost:{port}')
-    
-    import threading
-    browser_thread = threading.Thread(target=open_browser)
-    browser_thread.daemon = True
-    browser_thread.start()
     
     # Start Flask app
     try:

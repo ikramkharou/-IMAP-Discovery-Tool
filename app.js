@@ -6,6 +6,7 @@ let originalPasswords = new Map(); // Store original passwords
 let sortDirection = 'asc';
 let currentSortColumn = '';
 let currentInputMethod = 'file'; // 'file' or 'text'
+let currentStatusFilter = null; // 'success', 'failed', or null
 
 // DOM elements
 const dropzone = document.getElementById('dropzone');
@@ -57,6 +58,9 @@ const statRate = document.getElementById('stat-rate');
 const visibleCount = document.getElementById('visible-count');
 const totalCount = document.getElementById('total-count');
 const resultsSummary = document.getElementById('results-summary');
+const statusFilterIndicator = document.getElementById('status-filter-indicator');
+const statusFilterText = document.getElementById('status-filter-text');
+const clearStatusFilterBtn = document.getElementById('clear-status-filter');
 
 // Initialize tab functionality
 function initTabs() {
@@ -320,7 +324,7 @@ async function processEmails() {
                 formData.append('limit', limitSelect.value);
             }
             
-            response = await axios.post('/api/process', formData, {
+            response = await axios.post('/script_get_mx/api/process', formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data'
                 }
@@ -342,7 +346,7 @@ async function processEmails() {
                 requestData.limit = parseInt(limitSelect.value);
             }
             
-            response = await axios.post('/api/process-text', requestData, {
+            response = await axios.post('/script_get_mx/api/process-text', requestData, {
                 headers: {
                     'Content-Type': 'application/json'
                 }
@@ -405,7 +409,7 @@ async function pollProcessingStatus(processId) {
     return new Promise((resolve, reject) => {
         const pollInterval = setInterval(async () => {
             try {
-                const response = await axios.get(`/api/status/${processId}`);
+                const response = await axios.get(`/script_get_mx/api/status/${processId}`);
                 const status = response.data;
                 
                 // Update progress display
@@ -526,14 +530,25 @@ function displayResults(results, statistics = null) {
     progressSection.classList.add('hidden');
     resultsSection.classList.remove('hidden');
     
+    // Reset status filter when displaying new results
+    currentStatusFilter = null;
+    updateStatusFilterIndicator();
+    
     // Update statistics
     let stats;
     if (statistics) {
-        stats = statistics;
+        // Calculate total failed from backend statistics
+        const totalFailed = (statistics.failed || 0) + (statistics.login_failed || 0) + (statistics.server_found || 0);
+        stats = {
+            total: statistics.total,
+            successful: statistics.successful,
+            failed: totalFailed, // Include all non-success statuses
+            success_rate: statistics.success_rate
+        };
     } else {
         const total = results.length;
         const successful = results.filter(r => r.status === 'success').length;
-        const failed = total - successful;
+        const failed = results.filter(r => r.status !== 'success').length; // Include all non-success statuses
         const successRate = total > 0 ? Math.round((successful / total) * 100) : 0;
         stats = { total, successful, failed, success_rate: successRate };
     }
@@ -560,7 +575,7 @@ function renderTable(results = currentResults) {
     
     // Apply filters
     const searchTerm = searchInput.value.toLowerCase();
-    const portFilter = document.getElementById('port-filter').value;
+    const portFilterValue = document.getElementById('port-filter').value;
     
     const filteredResults = results.filter(result => {
         const matchesSearch = !searchTerm || 
@@ -568,9 +583,18 @@ function renderTable(results = currentResults) {
             result.domain.toLowerCase().includes(searchTerm) ||
             result.imap_server.toLowerCase().includes(searchTerm);
         
-        const matchesPort = !portFilter || result.port.toString() === portFilter;
+        const matchesPort = !portFilterValue || result.port.toString() === portFilterValue;
         
-        return matchesSearch && matchesPort;
+        // Handle status filtering - 'failed' includes all non-success statuses
+        let matchesStatus = true;
+        if (currentStatusFilter === 'success') {
+            matchesStatus = result.status === 'success';
+        } else if (currentStatusFilter === 'failed') {
+            // Include all non-success statuses: failed, login_failed, server_found, error
+            matchesStatus = result.status !== 'success';
+        }
+        
+        return matchesSearch && matchesPort && matchesStatus;
     });
     
     // Render rows
@@ -578,8 +602,39 @@ function renderTable(results = currentResults) {
         const row = document.createElement('tr');
         row.className = 'hover:bg-gray-50 transition-colors duration-200';
         
-        const statusClass = result.status === 'success' ? 'text-green-600' : 'text-red-600';
-        const statusIcon = result.status === 'success' ? 'fa-check-circle' : 'fa-times-circle';
+        // Determine status styling based on status type
+        let statusClass, statusIcon, statusText;
+        switch (result.status) {
+            case 'success':
+                statusClass = 'text-green-600';
+                statusIcon = 'fa-check-circle';
+                statusText = 'Success';
+                break;
+            case 'login_failed':
+                statusClass = 'text-orange-600';
+                statusIcon = 'fa-exclamation-triangle';
+                statusText = 'Login Failed';
+                break;
+            case 'server_found':
+                statusClass = 'text-blue-600';
+                statusIcon = 'fa-server';
+                statusText = 'Server Found';
+                break;
+            case 'failed':
+                statusClass = 'text-red-600';
+                statusIcon = 'fa-times-circle';
+                statusText = 'Failed';
+                break;
+            case 'error':
+                statusClass = 'text-red-600';
+                statusIcon = 'fa-exclamation-circle';
+                statusText = 'Error';
+                break;
+            default:
+                statusClass = 'text-gray-600';
+                statusIcon = 'fa-question-circle';
+                statusText = result.status;
+        }
         const portBadge = result.port === 993 ? 'bg-green-100 text-green-800' : 
                          result.port === 143 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800';
         
@@ -615,7 +670,7 @@ function renderTable(results = currentResults) {
             <td class="px-6 py-4 whitespace-nowrap">
                 <div class="flex items-center">
                     <i class="fas ${statusIcon} ${statusClass} mr-2"></i>
-                    <span class="text-sm font-medium ${statusClass} capitalize">${result.status}</span>
+                    <span class="text-sm font-medium ${statusClass}">${statusText}</span>
                 </div>
             </td>
         `;
@@ -769,9 +824,41 @@ document.addEventListener('DOMContentLoaded', () => {
         updateVisibleCount();
     });
     
+    // Clear status filter button
+    clearStatusFilterBtn.addEventListener('click', clearStatusFilter);
+    
     // Initialize process button state
     updateProcessButtonState();
 });
 
+// Status filtering functions
+function filterByStatus(status) {
+    currentStatusFilter = status;
+    updateStatusFilterIndicator();
+    renderTable();
+    updateVisibleCount();
+    
+    // Scroll to results table
+    document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' });
+}
+
+function clearStatusFilter() {
+    currentStatusFilter = null;
+    updateStatusFilterIndicator();
+    renderTable();
+    updateVisibleCount();
+}
+
+function updateStatusFilterIndicator() {
+    if (currentStatusFilter) {
+        statusFilterIndicator.classList.remove('hidden');
+        statusFilterText.textContent = `Showing ${currentStatusFilter === 'success' ? 'Successful' : 'Failed'} only`;
+    } else {
+        statusFilterIndicator.classList.add('hidden');
+    }
+}
+
 // Make functions globally available
 window.togglePassword = togglePassword;
+window.filterByStatus = filterByStatus;
+window.clearStatusFilter = clearStatusFilter;

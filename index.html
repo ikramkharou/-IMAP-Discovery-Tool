@@ -143,18 +143,20 @@
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">Connection Timeout</label>
                         <select id="timeout" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                            <option value="3">3 seconds (Fast)</option>
-                            <option value="5" selected>5 seconds (Default)</option>
+                            <option value="3" selected>3 seconds (Optimized)</option>
+                            <option value="5">5 seconds (Standard)</option>
                             <option value="10">10 seconds (Thorough)</option>
                         </select>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">Worker Threads</label>
                         <select id="workers" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                            <option value="10">10 threads (Conservative)</option>
-                            <option value="20">20 threads (Default)</option>
-                            <option value="30" selected>30 threads (Fast)</option>
-                            <option value="50">50 threads (Maximum)</option>
+                            <option value="100">100 threads (Conservative)</option>
+                            <option value="200">200 threads (Standard)</option>
+                            <option value="300">300 threads (Fast)</option>
+                            <option value="400">400 threads (Very Fast)</option>
+                            <option value="500" selected>500 threads (Maximum)</option>
+                            <option value="600">600 threads (Extreme)</option>
                         </select>
                     </div>
                     <div>
@@ -226,11 +228,11 @@
                         <div class="text-gray-600 font-medium">Total Processed</div>
                     </div>
                     <div class="text-center">
-                        <div class="text-3xl font-bold text-green-600" id="stat-success">0</div>
+                        <div class="text-3xl font-bold text-green-600 cursor-pointer hover:text-green-700 transition-colors duration-200 hover:scale-105 transform" id="stat-success" onclick="filterByStatus('success')" title="Click to show only successful connections">0</div>
                         <div class="text-gray-600 font-medium">Successful</div>
                     </div>
                     <div class="text-center">
-                        <div class="text-3xl font-bold text-red-600" id="stat-failed">0</div>
+                        <div class="text-3xl font-bold text-red-600 cursor-pointer hover:text-red-700 transition-colors duration-200 hover:scale-105 transform" id="stat-failed" onclick="filterByStatus('failed')" title="Click to show only failed connections">0</div>
                         <div class="text-gray-600 font-medium">Failed</div>
                     </div>
                     <div class="text-center">
@@ -253,6 +255,16 @@
                             <option value="993">Port 993 (SSL)</option>
                             <option value="143">Port 143 (Standard)</option>
                         </select>
+                        <!-- Status Filter Indicator -->
+                        <div id="status-filter-indicator" class="hidden flex items-center space-x-2">
+                            <span class="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-medium rounded-full">
+                                <i class="fas fa-filter mr-1"></i>
+                                <span id="status-filter-text">Filtered</span>
+                            </span>
+                            <button id="clear-status-filter" class="text-gray-500 hover:text-gray-700 transition-colors" title="Clear status filter">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="text-sm text-gray-600">
                         Showing <span id="visible-count">0</span> of <span id="total-count">0</span> results
@@ -293,7 +305,7 @@
                                 Password
                             </th>
                             <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Status
+                                Connection
                             </th>
                         </tr>
                     </thead>

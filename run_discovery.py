@@ -40,7 +40,7 @@ def main():
     elif choice == "3":
         # Custom settings
         timeout = input("Connection timeout (default 5): ").strip() or "5"
-        workers = input("Worker threads (default 50): ").strip() or "50"
+        workers = input("Worker threads (default 200): ").strip() or "200"
         csv_file = input("CSV output file (default imap_discovery_results.csv): ").strip() or "imap_discovery_results.csv"
         
         cmd = [

