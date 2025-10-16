@@ -354,11 +354,10 @@ def get_mx_records(domain):
 def test_videotron_connection(email, password, timeout=10):
     """Specialized test for Videotron accounts"""
     videotron_servers = [
-        ('imap.videotron.ca', 993),
-        ('mail.videotron.ca', 993),
-        ('imap.videotron.ca', 143),
-        ('pop.videotron.ca', 995),
-        ('pop.videotron.ca', 110)
+        ('imap.videotron.ca', 993),  # IMAP SSL - prioritize this
+        ('imap.videotron.ca', 143),  # IMAP non-SSL
+        ('pop.videotron.ca', 995),   # POP3 SSL
+        ('pop.videotron.ca', 110)    # POP3 non-SSL
     ]
     
     for host, port in videotron_servers:
@@ -398,7 +397,7 @@ def find_imap_simple(email, domain, timeout, password=None):
         'web.de': [('imap.web.de', 993)],
         'peoplepc.com': [('imap.peoplepc.com', 143), ('imap.peoplepc.com', 993)],
         # Videotron-specific configurations
-        'videotron.ca': [('imap.videotron.ca', 993), ('mail.videotron.ca', 993), ('imap.videotron.ca', 143)],
+        'videotron.ca': [('imap.videotron.ca', 993), ('imap.videotron.ca', 143)],
     }
     
     # Road Runner (rr.com) domains use webmail pattern
@@ -407,9 +406,13 @@ def find_imap_simple(email, domain, timeout, password=None):
     
     # Special handling for Videotron accounts
     if domain == 'videotron.ca' and password:
+        print(f"Testing Videotron connection for {email}")
         videotron_result = test_videotron_connection(email, password, timeout)
         if videotron_result:
+            print(f"Videotron test result: {videotron_result}")
             return videotron_result
+        else:
+            print("No Videotron connection found, trying standard discovery")
     
     # Check provider-specific configs first
     if domain in provider_configs:

@@ -1,2 +1,0 @@
-k.labrie@videotron.ca:internet
-test@videotron.ca:password123

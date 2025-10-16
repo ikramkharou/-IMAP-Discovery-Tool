@@ -37,8 +37,13 @@ def start_server():
     # Check if port is available
     port = 5001
     if not check_port(port):
-        print(f"⚠️  Port {port} is already in use. Please stop other services or change the port.")
-        input("Press Enter to continue anyway...")
+        print(f"⚠️  Port {port} is already in use. Attempting to use port anyway...")
+        try:
+            import sys
+            if not sys.stdin.isatty():
+                print("Running in non-interactive mode, continuing...")
+        except:
+            pass
     
     # Start server
     print(f"\n💻 Server starting at: http://localhost:{port}")
