@@ -715,20 +715,29 @@ function exportToCSV() {
         return;
     }
     
-    const headers = ['email', 'domain', 'imap_server', 'port', 'password'];
+    // Filter only successful results
+    const successfulResults = currentResults.filter(result => result.status === 'success');
+    
+    if (successfulResults.length === 0) {
+        showAlert('No successful connections to export.', 'error');
+        return;
+    }
+    
+    const headers = ['email', 'domain', 'imap_server', 'port', 'password', 'connection_success'];
     const csvContent = [
         headers.join(','),
-        ...currentResults.map(result => [
+        ...successfulResults.map(result => [
             result.email,
             result.domain,
             result.imap_server,
             result.port,
-            result.password
+            result.password,
+            result.status === 'success' ? 'YES' : 'NO'
         ].join(','))
     ].join('\n');
     
-    downloadCSV(csvContent, 'imap_configurations.csv');
-    showAlert('CSV file downloaded successfully!', 'success');
+    downloadCSV(csvContent, 'successful_imap_configurations.csv');
+    showAlert(`CSV file downloaded successfully! Exported ${successfulResults.length} successful connections.`, 'success');
 }
 
 function downloadCSV(content, filename) {

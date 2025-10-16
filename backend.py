@@ -11,6 +11,7 @@ import json
 import threading
 import socket
 import uuid
+import dns.resolver
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 app = Flask(__name__)
@@ -326,6 +327,58 @@ def test_imap_login(host, port, email, password, timeout):
     except Exception as e:
         return False
 
+def dns_lookup(domain, record_type='MX'):
+    """Perform DNS lookup for a domain"""
+    try:
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = 5
+        resolver.lifetime = 5
+        
+        if record_type == 'MX':
+            answers = resolver.resolve(domain, 'MX')
+            return [str(answer.exchange).rstrip('.') for answer in answers]
+        elif record_type == 'A':
+            answers = resolver.resolve(domain, 'A')
+            return [str(answer) for answer in answers]
+        elif record_type == 'CNAME':
+            answers = resolver.resolve(domain, 'CNAME')
+            return [str(answer.target).rstrip('.') for answer in answers]
+    except Exception as e:
+        print(f"DNS lookup failed for {domain}: {e}")
+        return []
+
+def get_mx_records(domain):
+    """Get MX records for a domain"""
+    return dns_lookup(domain, 'MX')
+
+def test_videotron_connection(email, password, timeout=10):
+    """Specialized test for Videotron accounts"""
+    videotron_servers = [
+        ('imap.videotron.ca', 993),
+        ('mail.videotron.ca', 993),
+        ('imap.videotron.ca', 143),
+        ('pop.videotron.ca', 995),
+        ('pop.videotron.ca', 110)
+    ]
+    
+    for host, port in videotron_servers:
+        try:
+            # Test connection
+            with socket.create_connection((host, port), timeout=timeout):
+                if port in [993, 143]:  # IMAP ports
+                    if test_imap_connection(host, port, timeout):
+                        if test_imap_login(host, port, email, password, timeout):
+                            return {'server': host, 'port': port, 'login_verified': True, 'provider': 'videotron'}
+                        else:
+                            return {'server': host, 'port': port, 'login_verified': False, 'provider': 'videotron'}
+                elif port in [995, 110]:  # POP ports
+                    # Add POP3 login test here if needed
+                    return {'server': host, 'port': port, 'login_verified': None, 'provider': 'videotron'}
+        except:
+            continue
+    
+    return None
+
 def find_imap_simple(email, domain, timeout, password=None):
     """Optimized IMAP discovery with actual IMAP testing and login verification"""
     
@@ -343,12 +396,20 @@ def find_imap_simple(email, domain, timeout, password=None):
         'mail.com': [('imap.mail.com', 993)],
         'gmx.com': [('imap.gmx.com', 993)],
         'web.de': [('imap.web.de', 993)],
-        'peoplepc.com': [('imap.peoplepc.com', 143), ('imap.peoplepc.com', 993)],  # Added peoplepc.com
+        'peoplepc.com': [('imap.peoplepc.com', 143), ('imap.peoplepc.com', 993)],
+        # Videotron-specific configurations
+        'videotron.ca': [('imap.videotron.ca', 993), ('mail.videotron.ca', 993), ('imap.videotron.ca', 143)],
     }
     
     # Road Runner (rr.com) domains use webmail pattern
     if domain.endswith('.rr.com'):
         provider_configs[domain] = [(f'webmail.{domain}', 993), (f'imap.{domain}', 993)]
+    
+    # Special handling for Videotron accounts
+    if domain == 'videotron.ca' and password:
+        videotron_result = test_videotron_connection(email, password, timeout)
+        if videotron_result:
+            return videotron_result
     
     # Check provider-specific configs first
     if domain in provider_configs:
@@ -369,6 +430,20 @@ def find_imap_simple(email, domain, timeout, password=None):
             except:
                 continue
     
+    # DNS-based discovery: Get MX records and try common patterns
+    mx_records = get_mx_records(domain)
+    dns_patterns = []
+    
+    # Add MX record patterns
+    for mx in mx_records[:3]:  # Limit to first 3 MX records
+        mx_domain = mx.rstrip('.')
+        dns_patterns.extend([
+            (mx_domain, 993),
+            (mx_domain, 143),
+            (f"imap.{mx_domain}", 993),
+            (f"imap.{mx_domain}", 143),
+        ])
+    
     # Generic patterns (prioritized by likelihood)
     generic_patterns = [
         (f"imap.{domain}", 993),
@@ -381,8 +456,11 @@ def find_imap_simple(email, domain, timeout, password=None):
         (domain, 143),
     ]
     
-    # Test generic patterns
-    for host, port in generic_patterns:
+    # Combine DNS patterns with generic patterns (DNS first)
+    all_patterns = dns_patterns + generic_patterns
+    
+    # Test all patterns (DNS + generic)
+    for host, port in all_patterns:
         try:
             # First check if port is open
             with socket.create_connection((host, port), timeout=timeout):
