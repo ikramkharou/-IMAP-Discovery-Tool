@@ -327,6 +327,27 @@ def test_imap_login(host, port, email, password, timeout):
     except Exception as e:
         return False
 
+def test_pop3_login(host, port, email, password, timeout):
+    """Test actual POP3 login with email and password"""
+    try:
+        import poplib
+        if port == 995:
+            # SSL connection
+            with poplib.POP3_SSL(host, port, timeout=timeout) as pop:
+                # Try to login with credentials
+                pop.user(email)
+                pop.pass_(password)
+                return True
+        else:
+            # Non-SSL connection
+            with poplib.POP3(host, port, timeout=timeout) as pop:
+                # Try to login with credentials
+                pop.user(email)
+                pop.pass_(password)
+                return True
+    except Exception as e:
+        return False
+
 def dns_lookup(domain, record_type='MX'):
     """Perform DNS lookup for a domain"""
     try:
@@ -371,8 +392,11 @@ def test_videotron_connection(email, password, timeout=10):
                         else:
                             return {'server': host, 'port': port, 'login_verified': False, 'provider': 'videotron'}
                 elif port in [995, 110]:  # POP ports
-                    # Add POP3 login test here if needed
-                    return {'server': host, 'port': port, 'login_verified': None, 'provider': 'videotron'}
+                    # Test POP3 login
+                    if test_pop3_login(host, port, email, password, timeout):
+                        return {'server': host, 'port': port, 'login_verified': True, 'provider': 'videotron'}
+                    else:
+                        return {'server': host, 'port': port, 'login_verified': False, 'provider': 'videotron'}
         except:
             continue
     
@@ -455,6 +479,8 @@ def find_imap_simple(email, domain, timeout, password=None):
         (f"mail.{domain}", 143),
         (f"webmail.{domain}", 993),  # Added webmail pattern for Road Runner and others
         (f"webmail.{domain}", 143),
+        (f"pop.{domain}", 995),      # POP3 SSL
+        (f"pop.{domain}", 110),      # POP3 non-SSL
         (domain, 993),
         (domain, 143),
     ]
@@ -467,11 +493,21 @@ def find_imap_simple(email, domain, timeout, password=None):
         try:
             # First check if port is open
             with socket.create_connection((host, port), timeout=timeout):
-                # Then test actual IMAP connection
-                if test_imap_connection(host, port, timeout):
-                    # If password provided, test login
+                # Determine if this is IMAP or POP3 based on port
+                if port in [993, 143]:  # IMAP ports
+                    if test_imap_connection(host, port, timeout):
+                        # If password provided, test login
+                        if password:
+                            if test_imap_login(host, port, email, password, timeout):
+                                return {'server': host, 'port': port, 'login_verified': True}
+                            else:
+                                return {'server': host, 'port': port, 'login_verified': False}
+                        else:
+                            return {'server': host, 'port': port, 'login_verified': None}
+                elif port in [995, 110]:  # POP3 ports
+                    # Test POP3 login
                     if password:
-                        if test_imap_login(host, port, email, password, timeout):
+                        if test_pop3_login(host, port, email, password, timeout):
                             return {'server': host, 'port': port, 'login_verified': True}
                         else:
                             return {'server': host, 'port': port, 'login_verified': False}

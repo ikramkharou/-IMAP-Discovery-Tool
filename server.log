@@ -1,0 +1,28 @@
+🚀 IMAP Discovery Tool - Web Interface
+==================================================
+🚀 Starting IMAP Discovery Web Interface...
+============================================================
+🌐 Professional Email Configuration Discovery Tool
+📧 Drag & Drop Interface with Real-time Processing
+🔍 Automatic IMAP Server Discovery & Testing
+📊 Professional Results Display & Export
+============================================================
+⚠️  Port 5001 is already in use. Attempting to use port anyway...
+Running in non-interactive mode, continuing...
+
+💻 Server starting at: http://localhost:5001
+
+📋 Usage Instructions:
+  1. Drag & drop your email:password .txt file
+  2. Adjust processing settings if needed
+  3. Click 'Discover IMAP Configurations'
+  4. View results and export CSV
+
+⚠️  Note: Processing may take several minutes for large files
+🔒 All processing is done locally - your data stays private
+
+============================================================
+ * Serving Flask app 'backend'
+ * Debug mode: off
+Address already in use
+Port 5001 is in use by another program. Either identify and stop that program, or start the server with a different port.
